@@ -1,0 +1,145 @@
+---
+title: "Projektgruppe OpenBikeSensor"
+author: "Christian Gießen"
+date: "`r Sys.Date()`"
+output:
+  pdf_document:
+    template: /home/rstudio/latextemplates/eisvogel.latex
+titlepage: true
+lang: de-DE
+---
+
+```{r setup, include=FALSE}
+# ------------------------------------------------------------------------------
+# General settings
+# ------------------------------------------------------------------------------
+options(tinytex.install_packages = FALSE)
+options(encoding = "native.enc")
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE
+)
+Sys.setlocale("LC_MESSAGES", 'de_DE.UTF-8')
+Sys.setenv(LANG = "de_DE.UTF-8")
+
+# ------------------------------------------------------------------------------
+# Libraries
+# ------------------------------------------------------------------------------
+library(tidyverse)     # tidy workflow
+library(sf)            # geospatial commands
+library(formattable)   # format numbers such as decimal point/comma etc
+library(curl)          # download events.json from portal
+
+# ------------------------------------------------------------------------------
+# constants
+# ------------------------------------------------------------------------------
+param_low_value_measurement_cutoff <- 0.1 # 10cm cutoff
+param_distance_labels <- c(0.25, 0.5, 0.75, 1.0, 1.25, 1.5) # *must* contain 1.5 as a value
+filename_events <- "/home/rstudio/events.json" # path to events.json
+filename_districts <- "/home/rstudio/Stadtteile_-_Hamburg.geojson" # shapes for boroughs/districts
+portal_events_url <- 'https://portal.openbikesensor.hamburg/api/export/events?fmt=geojson' # url to the portal api providing all events
+
+# download the events if events.json does not exist. Useful for working in a dev environment
+if (!file.exists(filename_events)) {
+  curl_download(
+    url='https://portal.openbikesensor.hamburg/api/export/events?fmt=geojson',
+    destfile=filename_events,
+    mode='w')
+}
+
+# read events.json as a feature collection and convert to a tibble.
+# Here we already filter the measurements by cutting off all measurements
+# below the threshold defined above by param_low_value_measurement_cutoff
+obs <- sf::st_read(filename_events)
+obs <- tibble(obs) %>% filter(distance_overtaker > param_low_value_measurement_cutoff)
+```
+
+# PG-OBS Daten
+
+## Messungen
+
+```{r fig:no_measurements, fig.cap="\\label{fig:no_measurements}Anzahl der Messpunkte über die Zeit"}
+obs_t <- obs %>%  mutate(year = year(time),
+          month = month(time),
+          day = day(time),
+          hour = hour(time),
+          week = week(time),
+          minute = minute(time),
+          timeofday_proto = format(time, "%H:%M:%S"),
+          timeofday = as.POSIXct(hms(timeofday_proto), origin="2018-01-01")) %>%
+  arrange(time) %>%
+  rowid_to_column('index')
+ggplot(obs_t, aes(x=time, y=index, group=1)) + geom_line() + xlab("Zeit") + ylab("Anzahl der Messpunkte")
+
+monthly <- obs_t %>% group_by(month = floor_date(time, 'month')) %>% summarize(no = n())
+weekly <- obs_t %>% group_by(week = floor_date(time, 'week')) %>% summarize(no = n())
+```
+
+- Seit 2021 werden im Monat durchschnittlich `r round(mean((obs_t %>% group_by(month = floor_date(time, 'month')) %>% summarize(no = n()))$no))` Messungen in das Portal geladen.
+- Am meisten Messungen wurden im `r months(monthly$month[which.max(monthly$no)])` `r year(monthly$month[which.max(monthly$no)])` aufgenommen, und zwar `r max(monthly$no)`.
+
+```{r fig:timeofday_measurements, fig.cap="\\label{fig:no_measurements}Tageszeitpunkt der Messungen (15min-Intervalle)"}
+
+ggplot(obs_t, aes(timeofday)) +
+  geom_histogram(bins = 48) +
+  scale_x_datetime(breaks = scales::date_breaks("4 hours"), date_labels = "%H:%M") +
+  xlab("Tageszeit") +
+  ylab("Anzahl der Messungen")
+  
+```
+
+## Überholabstände
+
+Der Mittelwert aller gemessenen Überholabstände ist
+`r formatC(mean(obs$distance_overtaker, na.rm=TRUE), decimal.mark=',', digits=2, format='f')`m
+und der Median beträgt `r formatC(median(obs$distance_overtaker, na.rm=TRUE), decimal.mark=',', digits=2, format='f')`m.
+Letztere Zahl besagt,
+dass jeder zweite gemessene Überholvorgang eine Distanz von
+`r formatC(median(obs$distance_overtaker, na.rm=TRUE), decimal.mark=',', digits=2, format='f')`m
+unterschreitet.
+
+In Abbildung \ref{fig:distribution} wird die Verteilung aller gemessenen Überholabstände angezeigt. Der vorgeschriebene Mindestabstand von 1,5m ist gestrichelt eingezeichnet.
+
+```{r fig:distribution, fig.cap="\\label{fig:distribution}Verteilung aller gemessenen Überholabstände"}
+ggplot(obs, aes(distance_overtaker)) +
+  geom_histogram(binwidth=0.05) +
+  scale_x_continuous(breaks = seq(0, 3, by = 0.25)) +
+  xlab("Überholabstand in Metern") +
+  ylab("Häufigkeit") +
+  geom_vline(xintercept=1.5, linetype='dashed')
+```
+
+```{r, echo=FALSE}
+distance_breaks <- c(-Inf, param_distance_labels, Inf)
+distance_labels <- c(sprintf("weniger als %sm", formatC(param_distance_labels, decimal.mark=',', digits=2, format='f')), "(alle Messungen)")
+tbl_distance <- obs %>%
+  mutate(distance = cut(distance_overtaker, breaks=distance_breaks, labels=distance_labels)) %>%
+  count(distance) %>%
+  mutate(cum = cumsum(n)) %>%
+  select(-n) %>%
+  mutate(`Anteil an allen Messungen`=percent(cum/max(cum)))
+
+knitr::kable(tbl_distance,
+             col.names=c("Überholabstand", "Anzahl", "Anteil"),
+             align=c('lcr'))
+```
+
+## Hamburg
+
+```{r plot, echo=FALSE}
+obs <- sf::st_read(filename_events) %>%
+  mutate(safe_maneuver = distance_overtaker > 1.5) %>%
+  drop_na(distance_overtaker)
+
+boroughs <- sf::st_read(filename_districts) %>%
+  filter(stadtteil_name != "Neuwerk")
+
+hh <- sf::st_intersection(obs, boroughs)
+
+ggplot() +
+  geom_sf(data = boroughs) +
+  geom_sf(data = hh, aes(color = safe_maneuver))
+
+
+```
