@@ -1,12 +1,14 @@
 ---
-title: "Projektgruppe OpenBikeSensor"
-author: "Christian Gießen"
-date: "`r Sys.Date()`"
+title: "Datenreport"
+subtitle: "Auswertungen der Überholabstände von Radfahrenden in Hamburg anhand der Messdaten des Hamburger Openbikesensor-Portals"
+author: "Projektgruppe Openbikesensor des ADFC Hamburgs"
+date: '`r paste("Stand: ", Sys.Date())`'
 output:
   pdf_document:
     template: /home/rstudio/latextemplates/eisvogel.latex
 titlepage: true
 lang: de-DE
+caption-justification: centering
 ---
 
 ```{r setup, include=FALSE}
@@ -16,7 +18,7 @@ lang: de-DE
 options(tinytex.install_packages = FALSE)
 options(encoding = "native.enc")
 knitr::opts_chunk$set(
-	echo = FALSE,
+	echo    = FALSE,
 	message = FALSE,
 	warning = FALSE
 )
@@ -30,6 +32,8 @@ library(tidyverse)     # tidy workflow
 library(sf)            # geospatial commands
 library(formattable)   # format numbers such as decimal point/comma etc
 library(curl)          # download events.json from portal
+library(viridis)       # viridis colors
+library(RColorBrewer)
 
 # ------------------------------------------------------------------------------
 # constants
@@ -57,60 +61,218 @@ obs <- tibble(obs) %>% filter(distance_overtaker > param_low_value_measurement_c
 
 # PG-OBS Daten
 
-## Messungen
+## Einleitung
 
-```{r fig:no_measurements, fig.cap="\\label{fig:no_measurements}Anzahl der Messpunkte über die Zeit"}
-obs_t <- obs %>%  mutate(year = year(time),
-          month = month(time),
-          day = day(time),
-          hour = hour(time),
-          week = week(time),
-          minute = minute(time),
-          timeofday_proto = format(time, "%H:%M:%S"),
-          timeofday = as.POSIXct(hms(timeofday_proto), origin="2018-01-01")) %>%
+Dieser Datenreport bietet eine detaillierte Auswertung der erhobenen Daten im Rahmen des Openbikesensorprojekts des Allgemeinen Deutschen Fahrrad-Clubs (ADFC) Hamburg.
+Das Projekt hat zum Ziel, das Problem des zu engen Überholens von Radfahrern im Straßenverkehr aufzuzeigen
+und politischen Druck für eine Verbesserung der Radinfrastruktur zu erzeugen.
+Durch die Messung von Überholabständen zwischen Autos und Fahrrädern werden wertvolle Informationen gesammelt,
+die einen Einblick in die aktuelle Verkehrssituation bieten und als Grundlage für Maßnahmen dienen können.
+
+Der vorliegende Datenreport enthält einen Überblick der erfassten Daten,
+einschließlich deskriptiver Statistiken und visueller Darstellungen,
+die das Ausmaß des Problems verdeutlichen.
+Zudem werden Zusammenhänge zwischen Überholabständen, Tageszeit, Wochentag und geografischer Verteilung untersucht.
+Diese Auswertungen sollen einen ersten Einblick in die erhobenen Daten bieten
+und ermöglichen es, gezielte Erkenntnisse zu gewinnen, um die Radverkehrssicherheit zu verbessern.
+
+Der Datenreport ist in verschiedene Abschnitte unterteilt,
+die jeweils spezifische Aspekte der Datenanalyse beleuchten.
+Die vorgestellten Ergebnisse sollen Journalisten, Entscheidungsträgern und der breiten Öffentlichkeit dabei helfen,
+das Problem des zu engen Überholens von Radfahrern besser zu verstehen
+und die Relevanz einer verbesserten Radinfrastruktur zu erkennen.
+
+Die erhobenen Daten stellen eine wertvolle Grundlage dar,
+um politischen Druck für Veränderungen aufzubauen und konkrete Maßnahmen zur Förderung des Radverkehrs einzufordern.
+Durch eine datenbasierte Herangehensweise können gezielte Verbesserungen in der Infrastruktur
+sowie bewusstseinsbildende Maßnahmen umgesetzt werden,
+um die Sicherheit und den Komfort von Radfahrern im Straßenverkehr nachhaltig zu verbessern.
+
+Wir laden Sie ein, diesen Datenreport zu durchlaufen und diesen Einblick zu nutzen,
+um das Bewusstsein für das Thema zu schärfen
+und einen konstruktiven Dialog über die Verbesserung der Radinfrastruktur
+und die Sicherheit aller Verkehrsteilnehmer anzustoßen.
+
+Hinweis: Die im Datenreport präsentierten Informationen basieren auf den Daten des Openbikesensor-Projekts des ADFC Hamburgs
+und wurden mit größtmöglicher Sorgfalt analysiert.
+Es ist zu beachten, dass die Ergebnisse repräsentative Tendenzen aufzeigen,
+jedoch nicht jeden Einzelfall abbilden können.
+Die Daten sollen als Grundlage für weitere Untersuchungen und Maßnahmen dienen,
+um das Ziel einer sicheren und fahrradfreundlichen Verkehrsumgebung zu erreichen.
+
+## Anzahl der Messungen über die Zeit
+
+Messdaten bilden die Grundlage für umfangreiche Auswertungen und Analysen im Openbikesensor-Projekt des ADFC Hamburgs.
+Der Graph zeigt einen erfreulichen positiven Trend, da die Anzahl der Messungen kontinuierlich zunimmt.
+Das beduetet, dass mehr Daten verfügbar sind,
+um fundierte Schlussfolgerungen zu ziehen und gezielte Maßnahmen zur Verbesserung der Radverkehrssicherheit abzuleiten.
+Der wachsende Umfang der Messungen spiegelt ebenfalls das Engagement und Interesse der Messfahrenden wider.
+ 
+```{r fig:no_measurements, fig.cap="\\label{fig:no_measurements}Messpunktentwicklung"}
+obs_t <- obs %>%  mutate(
+  year = year(time),
+  month           = month(time),
+  day             = day(time),
+  hour            = hour(time),
+  week            = week(time),
+  minute          = minute(time),
+  timeofday_proto = format(time, "%H:%M:%S"),
+  timeofday       = as.POSIXct(hms(timeofday_proto), origin="1900-01-01")) %>%
   arrange(time) %>%
   rowid_to_column('index')
-ggplot(obs_t, aes(x=time, y=index, group=1)) + geom_line() + xlab("Zeit") + ylab("Anzahl der Messpunkte")
+
+ggplot(obs_t, aes(x = time, y = index, group = 1)) +
+  theme_minimal() +
+  geom_line() +
+  xlab("Zeit") + 
+  ylab("Anzahl der Messpunkte") +
+  labs(
+    title    = "Messpunktentwicklung",
+    subtitle = "Anzahl der Messpunkte über die Zeit",
+    caption  = paste("Daten: portal.openbikesensor.hamburg, Stand: ", Sys.Date())
+  )
 
 monthly <- obs_t %>% group_by(month = floor_date(time, 'month')) %>% summarize(no = n())
 weekly <- obs_t %>% group_by(week = floor_date(time, 'week')) %>% summarize(no = n())
 ```
 
-- Seit 2021 werden im Monat durchschnittlich `r round(mean((obs_t %>% group_by(month = floor_date(time, 'month')) %>% summarize(no = n()))$no))` Messungen in das Portal geladen.
-- Am meisten Messungen wurden im `r months(monthly$month[which.max(monthly$no)])` `r year(monthly$month[which.max(monthly$no)])` aufgenommen, und zwar `r max(monthly$no)`.
+**Fakten**
 
-```{r fig:timeofday_measurements, fig.cap="\\label{fig:no_measurements}Tageszeitpunkt der Messungen (15min-Intervalle)"}
+-   Seit 2021 werden im Monat durchschnittlich `r round(mean((obs_t %>% group_by(month = floor_date(time, 'month')) %>% summarize(no = n()))$no))` Messungen in das Portal geladen.
+-   Am meisten Messungen wurden im `r months(monthly$month[which.max(monthly$no)])` `r year(monthly$month[which.max(monthly$no)])` aufgenommen, und zwar `r max(monthly$no)`.
+
+## Messpunkte anhand der Tageszeit
+
+Abbildung \ref{fig:timeofday_measurements} zeigt die Anzahl der Messungen
+in Abhängigkeit von der Tageszeit.
+Es wird deutlich, dass sich zwei markante Spitze abzeichnen,
+d.h. Tageszeiten zu denen besonders viele Messungen durchgeführt wurden,
+die sich mit den allgemeinen Berufsverkehrszeiten decken.
+
+```{r fig:timeofday_measurements, fig.cap="\\label{fig:timeofday_measurements}Messzeiten (15min-Intervalle)"}
 
 ggplot(obs_t, aes(timeofday)) +
+  theme_minimal() +
   geom_histogram(bins = 48) +
   scale_x_datetime(breaks = scales::date_breaks("4 hours"), date_labels = "%H:%M") +
   xlab("Tageszeit") +
-  ylab("Anzahl der Messungen")
+  ylab("Anzahl der Messungen") +
+  labs(
+    title    = "Messzeiten",
+    subtitle = "Anzahl der Messpunkte über die Zeit",
+    caption  = paste("Daten: portal.openbikesensor.hamburg, Stand: ", Sys.Date())
+  )
   
+```
+
+<!--
+Abbildung \ref{fig:timeofday_distances} zeigt die Überholabstände und ihre Häufigkeit
+in Abhängigkeit von der Tageszeit.
+Die Daten deuten darauf hin, dass die Überholabstände tageszeitunabhängig sind.
+
+```{r fig:timeofday_distances, fig.cap="\\label{fig:timeofday_distances}", echo=FALSE}
+ggplot(data=obs_t, aes(x=timeofday, y=distance_overtaker)) +
+  geom_bin2d() +
+  scale_x_datetime(breaks = scales::date_breaks("4 hours"), date_labels = "%H:%M") +
+  scale_fill_continuous(type = "viridis") +
+  xlab("Tageszeit") +
+  ylab("Überholabstand") +
+  theme_bw()
+```
+-->
+
+Die Analyse der Messdaten zeigt interessante Unterschiede in den Überholabständen im Laufe des Tages.
+Dabei werden sowohl der Mittelwert als auch der Median der Überholabstände stündlich berechnet.
+Ein genauerer Blick auf die Ergebnisse zeigt,
+dass sich der Mittelwert bis ungefähr 17 Uhr relativ konstant
+um den vorgeschrieben Sicherheitsabstand von 1,5 Metern bewegt,
+während der Median deutlich darunter liegt, siehe Abbildung \ref{fig:timeofday_distances_2}.
+
+Die Tatsache, dass der Median der Überholabstände bis ca 17:00 Uhr
+unterhalb des vorgeschriebenen Sicherheitsabstands von 1,5 Metern liegt,
+ist besorgniserregend.
+Der Median ist ein robustes statistisches Maß,
+das weniger anfällig für Ausreißerwerte ist als der Mittelwert.
+Das bedeutet, dass die Mehrheit der gemessenen Überholabstände,
+insbesondere zu den Hauptverkehrszeiten,
+unterhalb des Sicherheitsabstands liegt.
+
+Eine bemerkenswerte Beobachtung ist der deutliche Anstieg sowohl des Medians als auch des Mittelwerts ab etwa 17 Uhr.
+Dies weist darauf hin, dass die Überholabstände in den Abendstunden deutlich größer werden.
+Der Median, der eine Art "typischen" Wert darstellt,
+liegt zu diesen Zeiten merklich höher als zuvor.
+Gleichzeitig steigt auch der Mittelwert.
+
+Diese Erkenntnisse deuten darauf hin, dass abends, insbesondere nach 17 Uhr,
+die Überholabstände zwischen Autofahrern und Radfahrern größer sind.
+
+Diese Ergebnisse verdeutlichen die Bedeutung einer kontinuierlichen Überwachung und Verbesserung der Verkehrssituation
+zu verschiedenen Tageszeiten.
+Die Identifizierung von Spitzenzeiten,
+in denen die Überholabstände tendenziell geringer sind,
+kann dazu beitragen,
+gezielte Maßnahmen zur Steigerung der Verkehrssicherheit für Radfahrer zu entwickeln und umzusetzen.
+
+
+```{r fig:timeofday_distances_2, fig.cap="\\label{fig:timeofday_distances_2}Tageszeitabhängige Überholabstände", echo=FALSE}
+mean_dist_over_time <- obs_t %>%
+  mutate(timebin = cut(timeofday, breaks="1 hour", include.lowest = TRUE)) %>%
+  group_by(timebin) %>%
+  summarize(meandist   = mean(distance_overtaker),
+            mediandist = median(distance_overtaker),
+            no_meas    = n())
+
+mean_dist_over_time <- mean_dist_over_time %>%
+  mutate(timeofday = as.POSIXct(ymd_hms(mean_dist_over_time$timebin))) %>%
+  pivot_longer(cols = c("meandist", "mediandist"),
+               names_to = "dist_type")
+
+my_colors <- brewer.pal(3, "Set1")
+
+ggplot(data = mean_dist_over_time) +
+  theme_minimal() +
+  geom_hline(yintercept=1.5, linetype='dashed') +
+  geom_point(aes(x = timeofday, y = value, size = no_meas, color=dist_type)) +
+  scale_size(name   = "Anzahl der Messpunkte",
+             #breaks = fivenum(mean_dist_over_time$no_meas),
+             #labels = fivenum(mean_dist_over_time$no_meas)
+             ) +
+  scale_x_datetime(name        = "Tageszeit",
+                   breaks      = scales::date_breaks("2 hours"),
+                   date_labels = "%H:%M") +
+  scale_color_manual(name   = "Statistische Größe",
+                     labels = c("Mittelwert", "Median"),
+                     values = my_colors) +
+  ylab("Überholabstand (m)") +
+  labs(
+    title    = "Tageszeitabhängige Überholabstände",
+    subtitle = "Mittelwert und Median der Überholabstände (stündlich)",
+    caption  = paste("Daten: portal.openbikesensor.hamburg, Stand: ", Sys.Date())
+  )
 ```
 
 ## Überholabstände
 
-Der Mittelwert aller gemessenen Überholabstände ist
-`r formatC(mean(obs$distance_overtaker, na.rm=TRUE), decimal.mark=',', digits=2, format='f')`m
-und der Median beträgt `r formatC(median(obs$distance_overtaker, na.rm=TRUE), decimal.mark=',', digits=2, format='f')`m.
-Letztere Zahl besagt,
-dass jeder zweite gemessene Überholvorgang eine Distanz von
-`r formatC(median(obs$distance_overtaker, na.rm=TRUE), decimal.mark=',', digits=2, format='f')`m
-unterschreitet.
+Der Mittelwert aller gemessenen Überholabstände ist `r formatC(mean(obs$distance_overtaker, na.rm=TRUE), decimal.mark=',', digits=2, format='f')`m und der Median beträgt `r formatC(median(obs$distance_overtaker, na.rm=TRUE), decimal.mark=',', digits=2, format='f')`m. Letztere Zahl besagt, dass jeder zweite gemessene Überholvorgang eine Distanz von `r formatC(median(obs$distance_overtaker, na.rm=TRUE), decimal.mark=',', digits=2, format='f')`m unterschreitet.
 
 In Abbildung \ref{fig:distribution} wird die Verteilung aller gemessenen Überholabstände angezeigt. Der vorgeschriebene Mindestabstand von 1,5m ist gestrichelt eingezeichnet.
 
 ```{r fig:distribution, fig.cap="\\label{fig:distribution}Verteilung aller gemessenen Überholabstände"}
 ggplot(obs, aes(distance_overtaker)) +
+  theme_minimal() +
   geom_histogram(binwidth=0.05) +
   scale_x_continuous(breaks = seq(0, 3, by = 0.25)) +
   xlab("Überholabstand in Metern") +
   ylab("Häufigkeit") +
-  geom_vline(xintercept=1.5, linetype='dashed')
+  geom_vline(xintercept=1.5, linetype='dashed') +
+  labs(
+    title    = "Überholabstände",
+    subtitle = "Verteilung aller Überholabständer",
+    caption  = paste("Daten: portal.openbikesensor.hamburg, Stand: ", Sys.Date())
+  )
 ```
 
-```{r, echo=FALSE}
+```{r tbl:distribution, fig.cap="\\label{tbl:distribution}Verteilung zu geringer Überholabstände"}
 distance_breaks <- c(-Inf, param_distance_labels, Inf)
 distance_labels <- c(sprintf("weniger als %sm", formatC(param_distance_labels, decimal.mark=',', digits=2, format='f')), "(alle Messungen)")
 tbl_distance <- obs %>%
@@ -125,9 +287,10 @@ knitr::kable(tbl_distance,
              align=c('lcr'))
 ```
 
+
 ## Hamburg
 
-```{r plot, echo=FALSE}
+```{r borough_setup, include=FALSE}
 obs <- sf::st_read(filename_events) %>%
   mutate(safe_maneuver = distance_overtaker > 1.5) %>%
   drop_na(distance_overtaker)
@@ -135,11 +298,62 @@ obs <- sf::st_read(filename_events) %>%
 boroughs <- sf::st_read(filename_districts) %>%
   filter(stadtteil_name != "Neuwerk")
 
-hh <- sf::st_intersection(obs, boroughs)
 
-ggplot() +
-  geom_sf(data = boroughs) +
-  geom_sf(data = hh, aes(color = safe_maneuver))
+#hh <- sf::st_intersection(obs, boroughs)
+#st_crs(hh) <- "+proj=longlat +ellps=WGS84 +datum=WGS84"
+```
 
+```{r fig:meas_map_distribution, fig.cap="\\label{fig:meas_map_distribution}Messpunktdichte Hamburg", include=FALSE}
+ggplot(data = obs) +
+  geom_sf(data=boroughs) +
+  theme_void() +
+  stat_density_2d(mapping = ggplot2::aes(x = purrr::map_dbl(geometry, ~.[1]),
+                                         y = purrr::map_dbl(geometry, ~.[2]),
+                                         fill = stat(density)),
+                  geom = 'tile',
+                  contour = FALSE,
+                  alpha = 0.5) +
+  scale_fill_gradientn(name = 'Messdichte',
+                       colors = c('transparent',viridis::viridis_pal()(150))) +
+  xlim(9.700374, 10.355034) +
+  ylim(53.37779, 53.75666) +
+  theme(axis.title.x=element_blank(), axis.text.x=element_blank(),
+                      axis.ticks.x=element_blank())
+```
+
+
+```{r fig:meas_map_numbers, fig.cap="\\label{fig:meas_map_numbers}Messpunktdichte Hamburg"}
+
+no_measurements_per_district <- count(as_tibble(st_join(obs, boroughs, join=st_within)),
+                                     stadtteil_name,
+                                     name="no_measurements_per_district")
+
+boroughs_extended <- left_join(boroughs, no_measurements_per_district)
+
+ggplot(data=obs) +
+  theme_void() +
+  geom_sf(data = boroughs_extended, aes(group = bezirk_name, fill=no_measurements_per_district)) +
+    scale_fill_viridis(
+      trans = "log",
+      breaks=c(1,10,50,100,500,1000,2000),
+      name="Anzahl der Messpunkte",
+      guide = guide_legend(keyheight = unit(3, units = "mm"),
+                           keywidth=unit(12, units = "mm"),
+                           label.position = "bottom",
+                           title.position = 'top',
+                           nrow=1)) +
+  labs(
+    title = "Messpunktdichte Hamburg",
+    subtitle = "Anzahl der Messpunkte pro Stadtteil",
+    caption = paste("Daten: portal.openbikesensor.hamburg, Stand: ", Sys.Date())
+  ) +
+  theme(
+    #text = element_text(color = "#22211d"),
+    # plot.background = element_rect(fill = "#f5f5f2", color = NA),
+    # panel.background = element_rect(fill = "#f5f5f2", color = NA),
+    # legend.background = element_rect(fill = "#f5f5f2", color = NA),
+    # plot.caption = element_text( size=8, color = "#4e4d47", margin = margin(b = 0.3, r=-99, unit = "cm") ),
+    legend.position = 'bottom'
+  )
 
 ```
