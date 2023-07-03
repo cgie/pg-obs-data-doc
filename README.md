@@ -1,4 +1,4 @@
-## Java Dockerfile
+## Openbikesensor data report Dockerfile
 
 This repository contains a **Dockerfile** to automatically generate a data evaluation document for the [ADFC HH](https://hamburg.adfc.de/)'s Openbikesensor [portal](https://portal.openbikesensor.hamburg/).
 
