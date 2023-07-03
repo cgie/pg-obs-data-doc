@@ -33,7 +33,7 @@ function _docker_obs_run () {
 
 function _docker_obs_run_dev () {
     docker run --rm -ti -p 8787:8787 \
-        -e PASSWORD=***REMOVED*** \
+        -e PASSWORD=YOURPASSWORD \
         -v "/home/cgie/docker/files/:/home/rstudio/" \
         --entrypoint=/bin/bash \
         adfc/pgobs/datadoc:latest \
